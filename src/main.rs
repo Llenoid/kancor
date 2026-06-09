@@ -23,9 +23,23 @@ struct Todo {
     is_completed: bool
 }
 
-struct AppState {
+enum ColumnType {
+    Unassigned,
+    New,
+    Backlog,
+    Pending,
+    Done,
+}
+
+struct Column {
+    column_type: ColumnType,
     todos: Vec<Todo>,
     selected: usize,
+}
+
+struct AppState {
+    columns: Vec<Column>,
+    selected_column: usize
 }
 
 fn main() -> io::Result<()> {
@@ -33,7 +47,8 @@ fn main() -> io::Result<()> {
     let _terminal = Terminal;
     let _ = execute!(stdout(), EnterAlternateScreen)?;
     // render(&message)?;
-    let mut todos = Vec::new();
+    let mut todos_1 = Vec::new();
+    let mut todos_2 = Vec::new();
     let todo_1 = Todo {
         title: String::from("This is a title"),
         body: String::from("This is a body"),
@@ -45,21 +60,38 @@ fn main() -> io::Result<()> {
         body: String::from("This is another body"),
         is_completed: false,
     };
-    todos.push(todo_1);
-    todos.push(todo_2);
-    let mut app_state = AppState { todos: todos, selected: 0 };
+    todos_1.push(todo_1);
+    todos_2.push(todo_2);
+    let unassigned_col = Column { column_type: ColumnType::Unassigned, todos: todos_1, selected: 0 };
+    let done_col = Column { column_type: ColumnType::Done, todos: todos_2, selected: 0 };
+    let mut cols = Vec::new();
+    cols.push(unassigned_col);
+    cols.push(done_col);
+    let mut app_state = AppState { columns: cols, selected_column: 1 };
     loop {
         render(&app_state)?;
         if let Event::Key(key_event) = read()? {
             match key_event.code {
+                KeyCode::Char('h') => {
+                    if app_state.selected_column > 0 {
+                        app_state.selected_column -= 1;
+                    }
+                }
+                KeyCode::Char('l') => {
+                    if app_state.selected_column < app_state.columns.len() - 1 {
+                        app_state.selected_column += 1;
+                    }
+                }
                 KeyCode::Char('j') => {
-                    if app_state.selected < app_state.todos.len() - 1 {
-                        app_state.selected += 1;
+                    let col = &mut app_state.columns[app_state.selected_column];
+                    if col.selected < col.todos.len() - 1 {
+                        col.selected += 1;
                     }
                 }
                 KeyCode::Char('k') => {
-                    if app_state.selected > 0 {
-                        app_state.selected -= 1;
+                    let col = &mut app_state.columns[app_state.selected_column];
+                    if col.selected > 0 {
+                        col.selected -= 1;
                     }
                 }
                 KeyCode::Char('q') => {
@@ -77,12 +109,15 @@ fn main() -> io::Result<()> {
 
 fn render(app_state: &AppState) -> io::Result<()> {
     execute!(stdout(), Clear(ClearType::All))?;
-    for (i, todo) in app_state.todos.iter().enumerate() {
-        let mut message = format!("{}", &todo.title);
-        if app_state.selected == i {
-            message = format!(">{}", &todo.title);
+    for (i, cols) in app_state.columns.iter().enumerate() {
+        for (j, todo) in cols.todos.iter().enumerate() {
+            let mut message = format!("{}", &todo.title);
+            if app_state.selected_column == i && cols.selected == j {
+                message = format!(">{}", &todo.title);
+            }
+            let x = 2 + (i as u16 * 30);
+            execute!(stdout(), MoveTo(x, 2 + j as u16), Print(message))?;
         }
-        execute!(stdout(), MoveTo(2, 2 + i as u16), Print(message))?;
     }
     Ok(())
 }
