@@ -1,7 +1,7 @@
 use std::{io::{self, stdout}};
 use crossterm::{
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode, Clear, ClearType},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode, Clear, ClearType, size},
     event::{
         read, Event, KeyCode
     },
@@ -30,6 +30,20 @@ enum ColumnType {
     Pending,
     Done,
 }
+#[derive(PartialEq)]
+enum Mode {
+    Normal,
+    Insert,
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Mode::Normal => write!(f, "-- NORMAL --"),
+            Mode::Insert => write!(f, "-- INSERT --"),
+        }
+    }
+}
 
 struct Column {
     column_type: ColumnType,
@@ -40,7 +54,8 @@ struct Column {
 
 struct AppState {
     columns: Vec<Column>,
-    selected_column: usize
+    selected_column: usize,
+    mode: Mode,
 }
 
 fn main() -> io::Result<()> {
@@ -72,85 +87,101 @@ fn main() -> io::Result<()> {
 
     cols.push(unassigned_col);
     cols.push(done_col);
-    let mut app_state = AppState { columns: cols, selected_column: 1 };
+    let mut app_state = AppState { columns: cols, selected_column: 1, mode: Mode::Normal };
 
     loop {
         render(&app_state)?;
         if let Event::Key(key_event) = read()? {
-            match key_event.code {
-                KeyCode::Char('h') => {
-                    if app_state.selected_column > 0 {
-                        app_state.selected_column -= 1;
-                    }
-                }
-                KeyCode::Char('l') => {
-                    if app_state.selected_column < app_state.columns.len() - 1 {
-                        app_state.selected_column += 1;
-                    }
-                }
-                KeyCode::Char('j') => {
-                    let col = &mut app_state.columns[app_state.selected_column];
-                    if !col.todos.is_empty() && col.selected < col.todos.len() - 1 {
-                        col.selected += 1;
-                    }
-                }
-                KeyCode::Char('k') => {
-                    let col = &mut app_state.columns[app_state.selected_column];
-                    if !col.todos.is_empty() && col.selected > 0 {
-                        col.selected -= 1;
-                    }
-                }
-                KeyCode::Char('q') => {
-                    let distance = 2;
-                    execute!(stdout(), MoveTo(2, distance + 2), Print(format!("Stopping program: {:?}", key_event)))?;
-                    // render_key_event(key_event, distance + 2)?;
-                    break;
-                }
-                KeyCode::Enter => {
-                    let current_col = app_state.selected_column;
-                    // if the current_col is not the last col
-                    if current_col < app_state.columns.len() - 1 {
-                        let todo_index = app_state.columns[current_col].selected;
-                        // if the current column has any todos
-                        if !app_state.columns[current_col].todos.is_empty() {
-                            let todo = app_state.columns[current_col].todos.remove(todo_index);
-                            // Go to the next column Vec and then push
-                            app_state.columns[current_col + 1].todos.push(todo);
-                            let dest_len = app_state.columns[current_col + 1].todos.len();
-                            app_state.columns[current_col + 1].selected = dest_len - 1;
-                            // fix selected todo if it's out of bounds
-                            let len = app_state.columns[current_col].todos.len();
-                            if len == 0 {
-                                app_state.columns[current_col].selected = 0;
-                            } else if  app_state.columns[current_col].selected >= len {
-                                app_state.columns[current_col].selected = len - 1;
-                            } 
+            match app_state.mode {
+                Mode::Normal => {
+                    match key_event.code {
+                        KeyCode::Char('a') => {
+                            app_state.mode = Mode::Insert;
                         }
-                    }
-                }
-                KeyCode::Backspace => {
-                    let current_col = app_state.selected_column;
-                    // if the current_col is not the first col
-                    if current_col > 0 {
-                        let todo_index = app_state.columns[current_col].selected;
-                        // if the current column has any todos
-                        if !app_state.columns[current_col].todos.is_empty() {
-                            let todo = app_state.columns[current_col].todos.remove(todo_index);
-                            // Go to the next column Vec and then push
-                            app_state.columns[current_col - 1].todos.push(todo);
-                            let dest_len = app_state.columns[current_col - 1].todos.len();
-                            app_state.columns[current_col - 1].selected = dest_len - 1;
-                            // fix selected todo if it's out of bounds
-                            let len = app_state.columns[current_col].todos.len();
-                            if len == 0 {
-                                app_state.columns[current_col].selected = 0;
-                            } else if  app_state.columns[current_col].selected >= len {
-                                app_state.columns[current_col].selected = len - 1;
-                            } 
+                        KeyCode::Char('h') => {
+                            if app_state.selected_column > 0 {
+                                app_state.selected_column -= 1;
+                            }
                         }
+                        KeyCode::Char('l') => {
+                            if app_state.selected_column < app_state.columns.len() - 1 {
+                                app_state.selected_column += 1;
+                            }
+                        }
+                        KeyCode::Char('j') => {
+                            let col = &mut app_state.columns[app_state.selected_column];
+                            if !col.todos.is_empty() && col.selected < col.todos.len() - 1 {
+                                col.selected += 1;
+                            }
+                        }
+                        KeyCode::Char('k') => {
+                            let col = &mut app_state.columns[app_state.selected_column];
+                            if !col.todos.is_empty() && col.selected > 0 {
+                                col.selected -= 1;
+                            }
+                        }
+                        KeyCode::Char('q') => {
+                            let distance = 2;
+                            execute!(stdout(), MoveTo(2, distance + 2), Print(format!("Stopping program: {:?}", key_event)))?;
+                            // render_key_event(key_event, distance + 2)?;
+                            break;
+                        }
+                        KeyCode::Enter => {
+                            let current_col = app_state.selected_column;
+                            // if the current_col is not the last col
+                            if current_col < app_state.columns.len() - 1 {
+                                let todo_index = app_state.columns[current_col].selected;
+                                // if the current column has any todos
+                                if !app_state.columns[current_col].todos.is_empty() {
+                                    let todo = app_state.columns[current_col].todos.remove(todo_index);
+                                    // Go to the next column Vec and then push
+                                    app_state.columns[current_col + 1].todos.push(todo);
+                                    let dest_len = app_state.columns[current_col + 1].todos.len();
+                                    app_state.columns[current_col + 1].selected = dest_len - 1;
+                                    // fix selected todo if it's out of bounds
+                                    let len = app_state.columns[current_col].todos.len();
+                                    if len == 0 {
+                                        app_state.columns[current_col].selected = 0;
+                                    } else if  app_state.columns[current_col].selected >= len {
+                                        app_state.columns[current_col].selected = len - 1;
+                                    } 
+                                }
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            let current_col = app_state.selected_column;
+                            // if the current_col is not the first col
+                            if current_col > 0 {
+                                let todo_index = app_state.columns[current_col].selected;
+                                // if the current column has any todos
+                                if !app_state.columns[current_col].todos.is_empty() {
+                                    let todo = app_state.columns[current_col].todos.remove(todo_index);
+                                    // Go to the next column Vec and then push
+                                    app_state.columns[current_col - 1].todos.push(todo);
+                                    let dest_len = app_state.columns[current_col - 1].todos.len();
+                                    app_state.columns[current_col - 1].selected = dest_len - 1;
+                                    // fix selected todo if it's out of bounds
+                                    let len = app_state.columns[current_col].todos.len();
+                                    if len == 0 {
+                                        app_state.columns[current_col].selected = 0;
+                                    } else if  app_state.columns[current_col].selected >= len {
+                                        app_state.columns[current_col].selected = len - 1;
+                                    } 
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+
+                }
+                Mode::Insert => {
+                    match key_event.code {
+                        KeyCode::Esc => {
+                            app_state.mode = Mode::Normal;
+                        }
+                        _ => {}
                     }
                 }
-                _ => {}
             }
         }
     }
@@ -159,10 +190,11 @@ fn main() -> io::Result<()> {
 
 fn render(app_state: &AppState) -> io::Result<()> {
     execute!(stdout(), Clear(ClearType::All))?;
+    let (_, y) = size()?;
+    execute!(stdout(), MoveTo(0, y - 1), Print(&app_state.mode))?;
     for (i, cols) in app_state.columns.iter().enumerate() {
         let x = 2 + (i as u16 * 30);
-        let header = &cols.name;
-        execute!(stdout(), MoveTo(x, 0), Print(header))?;
+        execute!(stdout(), MoveTo(x, 0), Print(&cols.name))?;
         if cols.todos.is_empty() {
             let marker = if app_state.selected_column == i { ">(empty)" } else { " (empty)" };
             execute!(stdout(), MoveTo(x, 2), Print(marker))?;
