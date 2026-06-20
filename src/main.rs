@@ -156,6 +156,19 @@ fn main() -> io::Result<()> {
                             let _ = save(&app_state);
                             break;
                         }
+                        KeyCode::Char('d') => {
+                            if !app_state.columns[app_state.selected_column].todos.is_empty() {
+                                let current_col = app_state.selected_column;
+                                let todo_index = app_state.columns[current_col].selected;
+                                app_state.columns[current_col].todos.remove(todo_index);
+                                let len = app_state.columns[current_col].todos.len();
+                                if len == 0 {
+                                    app_state.columns[current_col].selected = 0;
+                                } else if app_state.columns[current_col].selected >=len {
+                                    app_state.columns[current_col].selected = len - 1;
+                                }
+                            }
+                        }
                         KeyCode::Enter => {
                             let current_col = app_state.selected_column;
                             // if the current_col is not the last col
