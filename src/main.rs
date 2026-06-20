@@ -181,6 +181,8 @@ fn main() -> io::Result<()> {
                                     app_state.columns[current_col + 1].todos.push(todo);
                                     let dest_len = app_state.columns[current_col + 1].todos.len();
                                     app_state.columns[current_col + 1].selected = dest_len - 1;
+                                    // Follow the todo when moving across columns
+                                    app_state.selected_column = current_col + 1;
                                     // fix selected todo if it's out of bounds
                                     let len = app_state.columns[current_col].todos.len();
                                     if len == 0 {
@@ -203,6 +205,8 @@ fn main() -> io::Result<()> {
                                     app_state.columns[current_col - 1].todos.push(todo);
                                     let dest_len = app_state.columns[current_col - 1].todos.len();
                                     app_state.columns[current_col - 1].selected = dest_len - 1;
+                                    // Follow the todo when moving across columns
+                                    app_state.selected_column = current_col - 1;
                                     // fix selected todo if it's out of bounds
                                     let len = app_state.columns[current_col].todos.len();
                                     if len == 0 {
