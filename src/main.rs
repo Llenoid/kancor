@@ -1,4 +1,4 @@
-use std::{io::{self, stdout}, fs, fmt::Debug};
+use std::{io::{self, stdout}, fs};
 use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode, Clear, ClearType, size},
@@ -50,6 +50,7 @@ impl ColumnType {
 enum Mode {
     Normal,
     Insert,
+    Popup,
 }
 
 impl std::fmt::Display for Mode {
@@ -57,6 +58,7 @@ impl std::fmt::Display for Mode {
         match self {
             Mode::Normal => write!(f, "-- NORMAL --"),
             Mode::Insert => write!(f, "-- INSERT --"),
+            Mode::Popup => write!(f, "-- POPUP --"),
         }
     }
 }
@@ -168,6 +170,9 @@ fn main() -> io::Result<()> {
                                 }
                             }
                         }
+                        KeyCode::Char('n') => {
+                            app_state.mode = Mode::Popup;
+                        }
                         KeyCode::Enter => {
                             let current_col = app_state.selected_column;
                             // if the current_col is not the last col
@@ -249,6 +254,36 @@ fn main() -> io::Result<()> {
                         _ => {}
                     }
                 }
+                Mode::Popup => {
+                    match key_event.code {
+                        KeyCode::Char(c) => {
+                            app_state.input_buffer.push(c);
+                        }
+                        KeyCode::Backspace => {
+                            app_state.input_buffer.pop();
+                        }
+                        KeyCode::Esc => {
+                            app_state.input_buffer.clear();
+                            app_state.mode = Mode::Normal;
+                        }
+                        KeyCode::Enter => {
+                            if !app_state.input_buffer.is_empty() {
+                                let todo = Todo {
+                                    title: app_state.input_buffer.clone(),
+                                    body: String::new(),
+                                    is_completed: false
+                                };
+                                app_state.input_buffer.clear();
+                                let current_col = app_state.selected_column;
+                                app_state.columns[current_col].todos.push(todo);
+                                let dest_len = app_state.columns[current_col].todos.len();
+                                app_state.columns[current_col].selected = dest_len - 1;
+                                app_state.mode = Mode::Normal;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
     }
@@ -257,9 +292,7 @@ fn main() -> io::Result<()> {
 
 fn render(app_state: &AppState) -> io::Result<()> {
     execute!(stdout(), Clear(ClearType::All))?;
-    let (_, y) = size()?;
-    execute!(stdout(), MoveTo(0, y - 1), Print(&app_state.mode))?;
-    execute!(stdout(), MoveTo(0, y - 4), Print(&app_state.input_buffer))?;
+    let (x, y) = size()?;
     for (i, cols) in app_state.columns.iter().enumerate() {
         let x = 2 + (i as u16 * 30);
         execute!(stdout(), MoveTo(x, 0), Print(&cols.name))?;
@@ -277,6 +310,10 @@ fn render(app_state: &AppState) -> io::Result<()> {
             }
         }
     }
+    if app_state.mode == Mode::Popup {
+        render_rect(x, y, &app_state.input_buffer)?;
+    }
+    execute!(stdout(), MoveTo(0, y - 1), Print(&app_state.mode))?;
     Ok(())
 }
 
@@ -290,4 +327,26 @@ fn load() -> Option<AppState> {
     let message: String = fs::read_to_string("kancor.json").ok()?;
     let app_state: AppState = serde_json::from_str::<AppState>(&message).ok()?;
     Some(app_state)
+}
+
+fn render_rect(w: u16, h: u16, input: &str) -> io::Result<()> {
+    let float_width = 50;
+    let float_height = 20;
+    let x = (w / 2) - (float_width / 2);
+    let y = (h / 2) - (float_height / 2);
+    execute!(stdout(), MoveTo(x, y), Print("┌"))?;
+    execute!(stdout(), MoveTo(x + 1, y), Print("─".repeat(float_width as usize - 1)))?;
+    execute!(stdout(), MoveTo(x + float_width, y), Print("┐"))?;
+    execute!(stdout(), MoveTo(x, y + float_height), Print("└"))?;
+    execute!(stdout(), MoveTo(x + 1, y + float_height), Print("─".repeat(float_width as usize - 1)))?;
+    execute!(stdout(), MoveTo(x + float_width, y + float_height), Print("┘"))?;
+    for row in 0..19 {
+        execute!(stdout(), MoveTo(x + 1, y + 1 + row), Print(" ".repeat(float_width as usize - 1)))?;
+        execute!(stdout(), MoveTo(x, y + 1 + row), Print("│"))?;
+        execute!(stdout(), MoveTo(x + float_width, y + 1 + row), Print("│"))?;
+    }
+    execute!(stdout(), MoveTo(x + 2, y + 2), Print(format!("Title: {}", input)))?;
+    execute!(stdout(), MoveTo(x + 2, y + 4), Print("Body: "))?;
+    execute!(stdout(), MoveTo(x + 2, y + 6), Print("Is Completed?: "))?;
+    Ok(())
 }
