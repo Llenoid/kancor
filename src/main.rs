@@ -1,4 +1,4 @@
-use std::{io::{self, stdout}};
+use std::{io::{self, stdout}, fs, fmt::Debug};
 use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode, Clear, ClearType, size},
@@ -8,6 +8,7 @@ use crossterm::{
     cursor::{MoveTo},
     style::{Print}
 };
+use serde::{Serialize, Deserialize};
 
 struct Terminal;
 impl Drop for Terminal {
@@ -17,12 +18,15 @@ impl Drop for Terminal {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct Todo {
     title: String,
     body: String,
     is_completed: bool
 }
 
+#[derive(Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)] 
 enum ColumnType {
     Unassigned,
     New,
@@ -30,6 +34,18 @@ enum ColumnType {
     Pending,
     Done,
 }
+
+impl ColumnType {
+    const VARIANTS: [ColumnType; 5] = [
+        ColumnType::Unassigned,
+        ColumnType::New,
+        ColumnType::Backlog,
+        ColumnType::Pending,
+        ColumnType::Done,
+    ];
+}
+
+#[derive(Serialize, Deserialize)]
 #[derive(PartialEq)]
 enum Mode {
     Normal,
@@ -45,6 +61,7 @@ impl std::fmt::Display for Mode {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 struct Column {
     column_type: ColumnType,
     name: String,
@@ -52,42 +69,54 @@ struct Column {
     selected: usize,
 }
 
+#[derive(Serialize, Deserialize)]
 struct AppState {
     columns: Vec<Column>,
     selected_column: usize,
     mode: Mode,
+    input_buffer: String,
+}
+
+pub trait ToSnakeCase {
+    fn to_snake_case(&self) -> String;
+}
+
+impl ToSnakeCase for ColumnType {
+    fn to_snake_case(&self) -> String {
+        let input = format!("{:?}", self);
+        let mut snake = String::with_capacity(input.len() * 2);
+
+        for (i, ch) in input.chars().enumerate() {
+            if ch.is_uppercase() {
+                if i > 0 {
+                    snake.push('_');
+                }
+                snake.extend(ch.to_lowercase());
+            } else {
+                snake.push(ch);
+            }
+        }
+        snake
+    }
 }
 
 fn main() -> io::Result<()> {
     enable_raw_mode()?;
     let _terminal = Terminal;
     let _ = execute!(stdout(), EnterAlternateScreen)?;
-    // render(&message)?;
-    let mut todos_1 = Vec::new();
-    let mut todos_2 = Vec::new();
-    let todo_1 = Todo {
-        title: String::from("This is a title"),
-        body: String::from("This is a body"),
-        is_completed: false,
-    };
 
-    let todo_2 = Todo {
-        title: String::from("This is another title"),
-        body: String::from("This is another body"),
-        is_completed: false,
-    };
-
-    todos_1.push(todo_1);
-    todos_2.push(todo_2);
-    let unassigned_header = "Unassigned".to_string();
-    let done_header = "Done".to_string();
-    let unassigned_col = Column { column_type: ColumnType::Unassigned, name: unassigned_header, todos: todos_1, selected: 0 };
-    let done_col = Column { column_type: ColumnType::Done, name: done_header, todos: todos_2, selected: 0 };
     let mut cols = Vec::new();
+    for col in ColumnType::VARIANTS.iter() {
+        let column = Column { column_type: *col, name: col.to_snake_case(), todos: Vec::new(), selected: 0 };
+        cols.push(column)
+    }
 
-    cols.push(unassigned_col);
-    cols.push(done_col);
-    let mut app_state = AppState { columns: cols, selected_column: 1, mode: Mode::Normal };
+    let mut app_state = load().unwrap_or_else(|| AppState {
+        columns: cols,
+        selected_column: 0,
+        mode: Mode::Normal,
+        input_buffer: String::new(),
+    });
 
     loop {
         render(&app_state)?;
@@ -124,6 +153,7 @@ fn main() -> io::Result<()> {
                             let distance = 2;
                             execute!(stdout(), MoveTo(2, distance + 2), Print(format!("Stopping program: {:?}", key_event)))?;
                             // render_key_event(key_event, distance + 2)?;
+                            let _ = save(&app_state);
                             break;
                         }
                         KeyCode::Enter => {
@@ -179,6 +209,27 @@ fn main() -> io::Result<()> {
                         KeyCode::Esc => {
                             app_state.mode = Mode::Normal;
                         }
+                        KeyCode::Char(c) => {
+                            app_state.input_buffer.push(c);
+                        }
+                        KeyCode::Backspace => {
+                            app_state.input_buffer.pop();
+                        }
+                        KeyCode::Enter => {
+                            if !app_state.input_buffer.is_empty() {
+                                let todo = Todo {
+                                    title: app_state.input_buffer.clone(),
+                                    body: String::new(),
+                                    is_completed: false
+                                };
+                                app_state.input_buffer.clear();
+                                let current_col = app_state.selected_column;
+                                app_state.columns[current_col].todos.push(todo);
+                                let dest_len = app_state.columns[current_col].todos.len();
+                                app_state.columns[current_col].selected = dest_len - 1;
+                                app_state.mode = Mode::Normal;
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -192,6 +243,7 @@ fn render(app_state: &AppState) -> io::Result<()> {
     execute!(stdout(), Clear(ClearType::All))?;
     let (_, y) = size()?;
     execute!(stdout(), MoveTo(0, y - 1), Print(&app_state.mode))?;
+    execute!(stdout(), MoveTo(0, y - 4), Print(&app_state.input_buffer))?;
     for (i, cols) in app_state.columns.iter().enumerate() {
         let x = 2 + (i as u16 * 30);
         execute!(stdout(), MoveTo(x, 0), Print(&cols.name))?;
@@ -210,4 +262,16 @@ fn render(app_state: &AppState) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn save(app_state: &AppState) -> io::Result<()> {
+    let json = serde_json::to_string_pretty(app_state).unwrap();
+    fs::write("kancor.json", &json)?;
+    Ok(())
+}
+
+fn load() -> Option<AppState> {
+    let message: String = fs::read_to_string("kancor.json").ok()?;
+    let app_state: AppState = serde_json::from_str::<AppState>(&message).ok()?;
+    Some(app_state)
 }
