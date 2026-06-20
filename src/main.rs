@@ -152,7 +152,6 @@ fn main() -> io::Result<()> {
                         KeyCode::Char('q') => {
                             let distance = 2;
                             execute!(stdout(), MoveTo(2, distance + 2), Print(format!("Stopping program: {:?}", key_event)))?;
-                            // render_key_event(key_event, distance + 2)?;
                             let _ = save(&app_state);
                             break;
                         }
