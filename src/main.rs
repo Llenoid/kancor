@@ -247,6 +247,7 @@ fn main() -> io::Result<()> {
                 }
             }
         }
+        let _ = save(&app_state);
     }
     Ok(())
 }
@@ -276,6 +277,8 @@ fn render(app_state: &AppState) -> io::Result<()> {
     if matches!(app_state.mode, Mode::Popup(_)) {
         render_rect(x, y, &app_state.input_buffer)?;
     }
+    let shortcuts = "n: new  d: delete  h/l: column  j/k: todo  q: quit";
+    execute!(stdout(), MoveTo(x - shortcuts.len() as u16, y - 1), Print(shortcuts))?;
     execute!(stdout(), MoveTo(0, y - 1), Print(&app_state.mode), cursor::Show)?;
     Ok(())
 }
