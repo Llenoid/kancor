@@ -7,7 +7,7 @@ use crossterm::{
         read, Event, KeyCode
     },
     cursor::{MoveTo},
-    style::{Print}
+    style::{Print, SetForegroundColor, ResetColor, Color}
 };
 use serde::{Serialize, Deserialize};
 
@@ -21,9 +21,7 @@ impl Drop for Terminal {
 
 #[derive(Serialize, Deserialize)]
 struct Todo {
-    title: String,
-    body: String,
-    is_completed: bool
+    note: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -84,6 +82,7 @@ struct AppState {
     selected_column: usize,
     mode: Mode,
     input_buffer: String,
+    is_renaming: bool,
 }
 
 fn main() -> io::Result<()> {
@@ -102,6 +101,7 @@ fn main() -> io::Result<()> {
         selected_column: 0,
         mode: Mode::Normal,
         input_buffer: String::new(),
+        is_renaming: false,
     });
 
     loop {
@@ -151,6 +151,15 @@ fn main() -> io::Result<()> {
                         }
                         KeyCode::Char('n') => {
                             app_state.mode = Mode::Popup(PopupMode::Normal);
+                        }
+                        KeyCode::Char('r') => {
+                            let current_col = app_state.selected_column;
+                            if current_col < app_state.columns.len() - 1 {
+                                let todo_index = app_state.columns[current_col].selected;
+                                app_state.input_buffer = app_state.columns[current_col].todos[todo_index].note.clone();
+                            }
+                            app_state.is_renaming = true;
+                            app_state.mode = Mode::Popup(PopupMode::Insert);
                         }
                         KeyCode::Enter => {
                             let current_col = app_state.selected_column;
@@ -228,17 +237,22 @@ fn main() -> io::Result<()> {
                             app_state.mode = Mode::Popup(PopupMode::Normal);
                         }
                         KeyCode::Enter => {
-                            if !app_state.input_buffer.is_empty() {
+                            if !app_state.input_buffer.is_empty() && !app_state.is_renaming {
                                 let todo = Todo {
-                                    title: app_state.input_buffer.clone(),
-                                    body: String::new(),
-                                    is_completed: false
+                                    note: app_state.input_buffer.clone(),
                                 };
                                 app_state.input_buffer.clear();
                                 let current_col = app_state.selected_column;
                                 app_state.columns[current_col].todos.push(todo);
                                 let dest_len = app_state.columns[current_col].todos.len();
                                 app_state.columns[current_col].selected = dest_len - 1;
+                                app_state.mode = Mode::Normal;
+                            } else if !app_state.input_buffer.is_empty() {
+                                let current_col = app_state.selected_column;
+                                let todo_index = app_state.columns[current_col].selected;
+                                app_state.columns[current_col].todos[todo_index].note = app_state.input_buffer.clone();
+                                app_state.input_buffer.clear();
+                                app_state.is_renaming = false;
                                 app_state.mode = Mode::Normal;
                             }
                         }
@@ -261,16 +275,22 @@ fn render(app_state: &AppState) -> io::Result<()> {
         execute!(stdout(), MoveTo(x, 0), Print(col_name))?;
         execute!(stdout(), MoveTo(x + col_name.len() as u16 + 2, 0), Print(&cols.todos.len()))?;
         if cols.todos.is_empty() {
-            let marker = if app_state.selected_column == i { ">(empty)" } else { " (empty)" };
-            execute!(stdout(), MoveTo(x, 2), Print(marker))?;
+            let mut marker = " (empty)";
+            if app_state.selected_column == i {
+                marker = ">(empty)";
+                execute!(stdout(), MoveTo(x, 2), SetForegroundColor(Color::Green), Print(marker), ResetColor)?;
+            } else { 
+                execute!(stdout(), MoveTo(x, 2), Print(marker))?;
+            };
         } else {
             for (j, todo) in cols.todos.iter().enumerate() {
-                let mut message = format!("{}", &todo.title);
+                let mut message = format!("{}", &todo.note);
                 if app_state.selected_column == i && cols.selected == j {
-                    message = format!(">{}", &todo.title);
+                    message = format!(">{}", &todo.note);
+                    execute!(stdout(), MoveTo(x, 2 + j as u16), SetForegroundColor(Color::Green), Print(message), ResetColor)?;
+                } else {
+                    execute!(stdout(), MoveTo(x, 2 + j as u16), Print(message))?;
                 }
-                let x = 2 + (i as u16 * 30);
-                execute!(stdout(), MoveTo(x, 2 + j as u16), Print(message))?;
             }
         }
     }
@@ -297,7 +317,7 @@ fn load() -> Option<AppState> {
 
 fn render_rect(w: u16, h: u16, input: &str) -> io::Result<()> {
     let float_width = 50;
-    let float_height = 20;
+    let float_height = 4;
     let x = (w / 2) - (float_width / 2);
     let y = (h / 2) - (float_height / 2);
     execute!(stdout(), MoveTo(x, y), Print("┌"))?;
@@ -306,13 +326,11 @@ fn render_rect(w: u16, h: u16, input: &str) -> io::Result<()> {
     execute!(stdout(), MoveTo(x, y + float_height), Print("└"))?;
     execute!(stdout(), MoveTo(x + 1, y + float_height), Print("─".repeat(float_width as usize - 1)))?;
     execute!(stdout(), MoveTo(x + float_width, y + float_height), Print("┘"))?;
-    for row in 0..19 {
+    for row in 0..3 {
         execute!(stdout(), MoveTo(x + 1, y + 1 + row), Print(" ".repeat(float_width as usize - 1)))?;
         execute!(stdout(), MoveTo(x, y + 1 + row), Print("│"))?;
         execute!(stdout(), MoveTo(x + float_width, y + 1 + row), Print("│"))?;
     }
-    execute!(stdout(), MoveTo(x + 2, y + 2), Print(format!("Title: {}", input)))?;
-    execute!(stdout(), MoveTo(x + 2, y + 4), Print("Body: "))?;
-    execute!(stdout(), MoveTo(x + 2, y + 6), Print("Is Completed?: "))?;
+    execute!(stdout(), MoveTo(x + 2, y + 2), Print(format!("Note: {}", input)))?;
     Ok(())
 }
