@@ -57,7 +57,6 @@ enum PopupMode {
 #[derive(PartialEq)]
 enum Mode {
     Normal,
-    Insert,
     Popup(PopupMode),
 }
 
@@ -65,7 +64,6 @@ impl std::fmt::Display for Mode {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Mode::Normal => write!(f, "-- NORMAL --"),
-            Mode::Insert => write!(f, "-- INSERT --"),
             Mode::Popup(PopupMode::Normal) => write!(f, "-- POPUP Normal --"),
             Mode::Popup(PopupMode::Insert) => write!(f, "-- POPUP Insert --"),
         }
@@ -87,29 +85,6 @@ struct AppState {
     mode: Mode,
     input_buffer: String,
 }
-
-// pub trait ToSnakeCase {
-//     fn to_snake_case(&self) -> String;
-// }
-
-// impl ToSnakeCase for ColumnType {
-//     fn to_snake_case(&self) -> String {
-//         let input = format!("{:?}", self);
-//         let mut snake = String::with_capacity(input.len() * 2);
-//
-//         for (i, ch) in input.chars().enumerate() {
-//             if ch.is_uppercase() {
-//                 if i > 0 {
-//                     snake.push('_');
-//                 }
-//                 snake.extend(ch.to_lowercase());
-//             } else {
-//                 snake.push(ch);
-//             }
-//         }
-//         snake
-//     }
-// }
 
 fn main() -> io::Result<()> {
     enable_raw_mode()?;
@@ -135,9 +110,6 @@ fn main() -> io::Result<()> {
             match app_state.mode {
                 Mode::Normal => {
                     match key_event.code {
-                        KeyCode::Char('a') => {
-                            app_state.mode = Mode::Insert;
-                        }
                         KeyCode::Char('h') => {
                             if app_state.selected_column > 0 {
                                 app_state.selected_column -= 1;
@@ -232,32 +204,6 @@ fn main() -> io::Result<()> {
                     }
 
                 }
-                Mode::Insert => {
-                    match key_event.code {
-                        KeyCode::Esc => {
-                            app_state.mode = Mode::Normal;
-                        }
-                        KeyCode::Backspace => {
-                            app_state.input_buffer.pop();
-                        }
-                        KeyCode::Enter => {
-                            if !app_state.input_buffer.is_empty() {
-                                let todo = Todo {
-                                    title: app_state.input_buffer.clone(),
-                                    body: String::new(),
-                                    is_completed: false
-                                };
-                                app_state.input_buffer.clear();
-                                let current_col = app_state.selected_column;
-                                app_state.columns[current_col].todos.push(todo);
-                                let dest_len = app_state.columns[current_col].todos.len();
-                                app_state.columns[current_col].selected = dest_len - 1;
-                                app_state.mode = Mode::Normal;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
                 Mode::Popup(PopupMode::Normal) => {
                     match key_event.code {
                         KeyCode::Esc => {
@@ -310,7 +256,9 @@ fn render(app_state: &AppState) -> io::Result<()> {
     let (x, y) = size()?;
     for (i, cols) in app_state.columns.iter().enumerate() {
         let x = 2 + (i as u16 * 30);
-        execute!(stdout(), MoveTo(x, 0), Print(&cols.name))?;
+        let col_name = &cols.name;
+        execute!(stdout(), MoveTo(x, 0), Print(col_name))?;
+        execute!(stdout(), MoveTo(x + col_name.len() as u16 + 2, 0), Print(&cols.todos.len()))?;
         if cols.todos.is_empty() {
             let marker = if app_state.selected_column == i { ">(empty)" } else { " (empty)" };
             execute!(stdout(), MoveTo(x, 2), Print(marker))?;
