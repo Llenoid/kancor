@@ -1,5 +1,6 @@
 use std::{io::{self, stdout}, fs};
 use crossterm::{
+    cursor,
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, enable_raw_mode, disable_raw_mode, Clear, ClearType, size},
     event::{
@@ -47,10 +48,17 @@ impl ColumnType {
 
 #[derive(Serialize, Deserialize)]
 #[derive(PartialEq)]
+enum PopupMode {
+    Normal,
+    Insert,
+}
+
+#[derive(Serialize, Deserialize)]
+#[derive(PartialEq)]
 enum Mode {
     Normal,
     Insert,
-    Popup,
+    Popup(PopupMode),
 }
 
 impl std::fmt::Display for Mode {
@@ -58,7 +66,8 @@ impl std::fmt::Display for Mode {
         match self {
             Mode::Normal => write!(f, "-- NORMAL --"),
             Mode::Insert => write!(f, "-- INSERT --"),
-            Mode::Popup => write!(f, "-- POPUP --"),
+            Mode::Popup(PopupMode::Normal) => write!(f, "-- POPUP Normal --"),
+            Mode::Popup(PopupMode::Insert) => write!(f, "-- POPUP Insert --"),
         }
     }
 }
@@ -79,28 +88,28 @@ struct AppState {
     input_buffer: String,
 }
 
-pub trait ToSnakeCase {
-    fn to_snake_case(&self) -> String;
-}
+// pub trait ToSnakeCase {
+//     fn to_snake_case(&self) -> String;
+// }
 
-impl ToSnakeCase for ColumnType {
-    fn to_snake_case(&self) -> String {
-        let input = format!("{:?}", self);
-        let mut snake = String::with_capacity(input.len() * 2);
-
-        for (i, ch) in input.chars().enumerate() {
-            if ch.is_uppercase() {
-                if i > 0 {
-                    snake.push('_');
-                }
-                snake.extend(ch.to_lowercase());
-            } else {
-                snake.push(ch);
-            }
-        }
-        snake
-    }
-}
+// impl ToSnakeCase for ColumnType {
+//     fn to_snake_case(&self) -> String {
+//         let input = format!("{:?}", self);
+//         let mut snake = String::with_capacity(input.len() * 2);
+//
+//         for (i, ch) in input.chars().enumerate() {
+//             if ch.is_uppercase() {
+//                 if i > 0 {
+//                     snake.push('_');
+//                 }
+//                 snake.extend(ch.to_lowercase());
+//             } else {
+//                 snake.push(ch);
+//             }
+//         }
+//         snake
+//     }
+// }
 
 fn main() -> io::Result<()> {
     enable_raw_mode()?;
@@ -109,7 +118,7 @@ fn main() -> io::Result<()> {
 
     let mut cols = Vec::new();
     for col in ColumnType::VARIANTS.iter() {
-        let column = Column { column_type: *col, name: col.to_snake_case(), todos: Vec::new(), selected: 0 };
+        let column = Column { column_type: *col, name: format!("{:?}", col), todos: Vec::new(), selected: 0 };
         cols.push(column)
     }
 
@@ -152,8 +161,6 @@ fn main() -> io::Result<()> {
                             }
                         }
                         KeyCode::Char('q') => {
-                            let distance = 2;
-                            execute!(stdout(), MoveTo(2, distance + 2), Print(format!("Stopping program: {:?}", key_event)))?;
                             let _ = save(&app_state);
                             break;
                         }
@@ -171,7 +178,7 @@ fn main() -> io::Result<()> {
                             }
                         }
                         KeyCode::Char('n') => {
-                            app_state.mode = Mode::Popup;
+                            app_state.mode = Mode::Popup(PopupMode::Normal);
                         }
                         KeyCode::Enter => {
                             let current_col = app_state.selected_column;
@@ -230,9 +237,6 @@ fn main() -> io::Result<()> {
                         KeyCode::Esc => {
                             app_state.mode = Mode::Normal;
                         }
-                        KeyCode::Char(c) => {
-                            app_state.input_buffer.push(c);
-                        }
                         KeyCode::Backspace => {
                             app_state.input_buffer.pop();
                         }
@@ -254,7 +258,19 @@ fn main() -> io::Result<()> {
                         _ => {}
                     }
                 }
-                Mode::Popup => {
+                Mode::Popup(PopupMode::Normal) => {
+                    match key_event.code {
+                        KeyCode::Esc => {
+                            app_state.input_buffer.clear();
+                            app_state.mode = Mode::Normal;
+                        }
+                        KeyCode::Char('i') => {
+                            app_state.mode = Mode::Popup(PopupMode::Insert);
+                        }
+                        _ => {}
+                    }
+                }
+                Mode::Popup(PopupMode::Insert) => {
                     match key_event.code {
                         KeyCode::Char(c) => {
                             app_state.input_buffer.push(c);
@@ -263,8 +279,7 @@ fn main() -> io::Result<()> {
                             app_state.input_buffer.pop();
                         }
                         KeyCode::Esc => {
-                            app_state.input_buffer.clear();
-                            app_state.mode = Mode::Normal;
+                            app_state.mode = Mode::Popup(PopupMode::Normal);
                         }
                         KeyCode::Enter => {
                             if !app_state.input_buffer.is_empty() {
@@ -291,7 +306,7 @@ fn main() -> io::Result<()> {
 }
 
 fn render(app_state: &AppState) -> io::Result<()> {
-    execute!(stdout(), Clear(ClearType::All))?;
+    execute!(stdout(), cursor::Hide, Clear(ClearType::All))?;
     let (x, y) = size()?;
     for (i, cols) in app_state.columns.iter().enumerate() {
         let x = 2 + (i as u16 * 30);
@@ -310,10 +325,10 @@ fn render(app_state: &AppState) -> io::Result<()> {
             }
         }
     }
-    if app_state.mode == Mode::Popup {
+    if matches!(app_state.mode, Mode::Popup(_)) {
         render_rect(x, y, &app_state.input_buffer)?;
     }
-    execute!(stdout(), MoveTo(0, y - 1), Print(&app_state.mode))?;
+    execute!(stdout(), MoveTo(0, y - 1), Print(&app_state.mode), cursor::Show)?;
     Ok(())
 }
 
